@@ -1,0 +1,167 @@
+---
+- name: Verify AlmaLinux security configuration
+  hosts: managed
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Check SSH configuration
+      ansible.builtin.command: sshd -T
+      register: ssh_config
+      changed_when: false
+
+    - name: Verify root login is disabled
+      ansible.builtin.assert:
+        that:
+          - "'permitrootlogin no' in ssh_config.stdout"
+        fail_msg: "PermitRootLogin is not disabled"
+        success_msg: "PermitRootLogin is disabled"
+
+    - name: Verify password authentication is disabled
+      ansible.builtin.assert:
+        that:
+          - "'passwordauthentication no' in ssh_config.stdout"
+        fail_msg: "PasswordAuthentication is not disabled"
+        success_msg: "PasswordAuthentication is disabled"
+
+    - name: Verify keyboard-interactive authentication is disabled
+      ansible.builtin.assert:
+        that:
+          - "'kbdinteractiveauthentication no' in ssh_config.stdout"
+        fail_msg: "KbdInteractiveAuthentication is not disabled"
+        success_msg: "KbdInteractiveAuthentication is disabled"
+
+    - name: Verify maximum authentication attempts
+      ansible.builtin.assert:
+        that:
+          - "'maxauthtries 3' in ssh_config.stdout"
+        fail_msg: "MaxAuthTries is not set to 3"
+        success_msg: "MaxAuthTries is set to 3"
+
+    - name: Verify SSH login grace time
+      ansible.builtin.assert:
+        that:
+          - "'logingracetime 30' in ssh_config.stdout"
+        fail_msg: "LoginGraceTime is not set to 30 seconds"
+        success_msg: "LoginGraceTime is set to 30 seconds"
+
+    - name: Verify X11 forwarding is disabled
+      ansible.builtin.assert:
+        that:
+          - "'x11forwarding no' in ssh_config.stdout"
+        fail_msg: "X11Forwarding is not disabled"
+        success_msg: "X11Forwarding is disabled"
+
+    - name: Check firewalld is active
+      ansible.builtin.command: systemctl is-active firewalld
+      register: firewalld_status
+      changed_when: false
+
+    - name: Verify firewalld service is running
+      ansible.builtin.assert:
+        that:
+          - "firewalld_status.stdout == 'active'"
+        fail_msg: "Firewalld is not active"
+        success_msg: "Firewalld is active"
+
+    - name: Get active firewalld zone
+      ansible.builtin.command: firewall-cmd --get-active-zones
+      register: firewalld_zones
+      changed_when: false
+
+    - name: Verify public firewall zone is active
+      ansible.builtin.assert:
+        that:
+          - "'public' in firewalld_zones.stdout"
+        fail_msg: "Public firewall zone is not active"
+        success_msg: "Public firewall zone is active"
+
+    - name: Get services allowed in public zone
+      ansible.builtin.command: firewall-cmd --zone=public --list-services
+      register: firewalld_services
+      changed_when: false
+
+    - name: Verify only SSH service is allowed
+      ansible.builtin.assert:
+        that:
+          - "firewalld_services.stdout | trim == 'ssh'"
+        fail_msg: "Unexpected services are allowed in the public zone"
+        success_msg: "Only SSH service is allowed in the public zone"
+
+    - name: Check SELinux is enforcing
+      ansible.builtin.command: getenforce
+      register: selinux_status
+      changed_when: false
+
+    - name: Verify SELinux enforcement mode
+      ansible.builtin.assert:
+        that:
+          - "selinux_status.stdout == 'Enforcing'"
+        fail_msg: "SELinux is not enforcing"
+        success_msg: "SELinux is enforcing"
+
+    - name: Check auditd is active
+      ansible.builtin.command: systemctl is-active auditd
+      register: auditd_status
+      changed_when: false
+
+    - name: Verify auditd service is running
+      ansible.builtin.assert:
+        that:
+          - "auditd_status.stdout == 'active'"
+        fail_msg: "Auditd is not active"
+        success_msg: "Auditd is active"
+
+    - name: Get IPv4 redirect settings
+      ansible.builtin.command: sysctl -n net.ipv4.conf.all.accept_redirects net.ipv4.conf.default.accept_redirects net.ipv4.conf.all.send_redirects net.ipv4.conf.default.send_redirects
+      register: sysctl_redirects
+      changed_when: false
+
+    - name: Verify IPv4 redirect settings
+      ansible.builtin.assert:
+        that:
+          - "sysctl_redirects.stdout_lines[0] == '0'"
+          - "sysctl_redirects.stdout_lines[1] == '0'"
+          - "sysctl_redirects.stdout_lines[2] == '0'"
+          - "sysctl_redirects.stdout_lines[3] == '0'"
+        fail_msg: "One or more IPv4 redirect settings are not set to 0"
+        success_msg: "IPv4 redirect settings are correctly configured"
+
+    - name: Check systemd-journald is active
+      ansible.builtin.command: systemctl is-active systemd-journald
+      register: journald_status
+      changed_when: false
+
+    - name: Verify systemd-journald service is running
+      ansible.builtin.assert:
+        that:
+          - "journald_status.stdout == 'active'"
+        fail_msg: "systemd-journald is not active"
+        success_msg: "systemd-journald is active"
+
+    - name: Check persistent journal storage
+      ansible.builtin.find:
+        paths: /var/log/journal
+        patterns: system.journal
+        recurse: true
+        file_type: file
+      register: journal_files
+
+    - name: Verify persistent journal storage
+      ansible.builtin.assert:
+        that:
+          - "journal_files.matched > 0"
+        fail_msg: "Persistent journal storage is not available"
+        success_msg: "Persistent journal storage is available"
+
+    - name: Verify journal integrity
+      ansible.builtin.command: journalctl --verify
+      register: journal_verify
+      changed_when: false
+
+    - name: Verify journal integrity result
+      ansible.builtin.assert:
+        that:
+          - "journal_verify.rc == 0"
+        fail_msg: "Journal integrity verification failed"
+        success_msg: "Journal integrity verification completed successfully"

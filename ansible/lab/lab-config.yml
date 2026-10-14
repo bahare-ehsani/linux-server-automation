@@ -1,0 +1,18 @@
+---
+- name: Practice configuration management
+  hosts: managed
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Manage lab configuration file
+      ansible.builtin.copy:
+        dest: /etc/ansible-lab.conf
+        owner: root
+        group: root
+        mode: '0644'
+        backup: true
+        content: |
+          environment=lab
+          managed_by=ansible
+          purpose=backup-diff-practice
